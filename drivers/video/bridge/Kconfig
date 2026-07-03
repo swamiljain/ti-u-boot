@@ -116,6 +116,24 @@ config SPL_VIDEO_BRIDGE_DP_CONNECTOR
           eDP bridge driver needs to walk the OF graph during SPL to
           detect the connector type (DisplayPort vs eDP).
 
+config VIDEO_BRIDGE_SII902X
+	bool "Support Silicon Image SII902x HDMI bridge in SPL"
+	depends on SPL_VIDEO_BRIDGE
+	select SPL_DM_I2C
+	help
+	  The Silicon Image SII902x is an RGB-to-HDMI converter. It enables
+	  an HDMI display to be connected to an RGB LCD interface. The
+	  SII902x supports EDID reading, hotplug detection, and various
+	  video input formats.
+
+config SPL_VIDEO_BRIDGE_SII902X
+	bool "Support Silicon Image SII902x HDMI bridge"
+	depends on SPL_VIDEO_BRIDGE
+	select DM_I2C
+	help
+	  Enable SII902x bridge driver in SPL.
+	  Required for HDMI splash screen display before U-Boot proper.
+
 config VIDEO_BRIDGE_TI_SN65DSI86
 	bool "Support TI SN65DSI86 DSI-to-eDP bridge"
 	depends on VIDEO_BRIDGE && DM_GPIO
