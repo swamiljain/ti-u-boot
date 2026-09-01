@@ -125,17 +125,23 @@ int bmp_display(ulong addr, int x, int y)
 	addr = map_to_sysmem(bmp);
 
 	ret = uclass_first_device_err(UCLASS_VIDEO, &dev);
+	printf("%s: uclass_first_device_err(UCLASS_VIDEO) ret=%d, dev=%s\n",
+	       __func__, ret, (!ret && dev) ? dev->name : "<none>");
 	if (!ret) {
 		bool align = false;
 
 		if (x == BMP_ALIGN_CENTER || y == BMP_ALIGN_CENTER)
 			align = true;
 
+		printf("%s: calling video_bmp_display(addr=0x%lx, x=%d, y=%d, align=%d)\n",
+		       __func__, addr, x, y, align);
 		ret = video_bmp_display(dev, addr, x, y, align);
+		printf("%s: video_bmp_display returned %d\n", __func__, ret);
 	}
 
 	if (bmp_alloc_addr)
 		free(bmp_alloc_addr);
 
+	printf("%s: done, returning %d\n", __func__, ret ? CMD_RET_FAILURE : 0);
 	return ret ? CMD_RET_FAILURE : 0;
 }

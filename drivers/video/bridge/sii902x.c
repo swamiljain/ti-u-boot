@@ -65,7 +65,7 @@
 #define SII902X_MAX_PIXEL_CLOCK_KHZ		165000
 
 static const struct display_timing default_timing = {
-	.pixelclock.typ		= 148500000,
+	.pixelclock.typ		= 148500,
 	.hactive.typ		= 1920,
 	.hfront_porch.typ	= 88,
 	.hback_porch.typ	= 148,
@@ -85,12 +85,14 @@ struct sii902x_priv {
 static int sii902x_reg_read(struct udevice *dev, u8 reg)
 {
 	int ret = dm_i2c_reg_read(dev, reg);
+	printf("%s: reg=0x%02x ret=%d\n", __func__, reg, ret);
 	return ret;
 }
 
 static int sii902x_reg_write(struct udevice *dev, u8 reg, u8 val)
 {
 	int ret = dm_i2c_reg_write(dev, reg, val);
+	printf("%s: reg=0x%02x val=0x%02x ret=%d\n", __func__, reg, val, ret);
 	return ret;
 }
 
@@ -99,11 +101,16 @@ static int sii902x_update_bits(struct udevice *dev, u8 reg, u8 mask, u8 val)
 	int ret, old_val, new_val;
 
 	ret = sii902x_reg_read(dev, reg);
-	if (ret < 0)
+	if (ret < 0) {
+		printf("%s: reg=0x%02x read failed: %d\n", __func__, reg, ret);
 		return ret;
+	}
 
 	old_val = ret;
 	new_val = (ret & ~mask) | (val & mask);
+
+	printf("%s: reg=0x%02x mask=0x%02x val=0x%02x old=0x%02x new=0x%02x\n",
+	       __func__, reg, mask, val, old_val, new_val);
 
 	return sii902x_reg_write(dev, reg, new_val);
 }
@@ -126,8 +133,11 @@ static int sii902x_bridge_mode_set(struct udevice *dev,
 	u16 pixel_clock_10khz;
 	int ret;
 
+	printf("%s: entry\n", __func__);
+
 	if (!timing) {
 		dev_err(dev, "Invalid timing parameter\n");
+		printf("%s: timing is NULL\n", __func__);
 		return -EINVAL;
 	}
 
@@ -158,6 +168,8 @@ static int sii902x_bridge_mode_set(struct udevice *dev,
 		ret = sii902x_reg_write(dev, SII902X_TPI_VIDEO_DATA + i, buf[i]);
 		if (ret) {
 			dev_err(dev, "Failed to write TPI video data[%d]: %d\n", i, ret);
+			printf("%s: failed to write TPI video data[%d]: %d\n",
+			       __func__, i, ret);
 			return ret;
 		}
 	}
@@ -192,9 +204,12 @@ static int sii902x_bridge_init(struct udevice *dev)
 	int ret;
 	u8 output_mode = SII902X_SYS_CTRL_OUTPUT_HDMI;  /* Default to HDMI mode */
 
+	printf("%s: entry\n", __func__);
+
 	/* Set output mode to HDMI */
 	ret = sii902x_update_bits(dev, SII902X_SYS_CTRL_DATA,
 				  SII902X_SYS_CTRL_OUTPUT_MODE, output_mode);
+	printf("%s: set output mode ret=%d\n", __func__, ret);
 	if (ret) {
 		dev_err(dev, "Failed to set output mode: %d\n", ret);
 		return ret;
@@ -204,6 +219,7 @@ static int sii902x_bridge_init(struct udevice *dev)
 	ret = sii902x_update_bits(dev, SII902X_PWR_STATE_CTRL,
 				  SII902X_AVI_POWER_STATE_MSK,
 				  SII902X_AVI_POWER_STATE_D(0));
+	printf("%s: set power state ret=%d\n", __func__, ret);
 	if (ret) {
 		dev_err(dev, "Failed to set power state: %d\n", ret);
 		return ret;
@@ -212,11 +228,13 @@ static int sii902x_bridge_init(struct udevice *dev)
 	/* Clear power down bit to enable the device */
 	ret = sii902x_update_bits(dev, SII902X_SYS_CTRL_DATA,
 				  SII902X_SYS_CTRL_PWR_DWN, 0);
+	printf("%s: clear power down ret=%d\n", __func__, ret);
 	if (ret) {
 		dev_err(dev, "Failed to clear power down: %d\n", ret);
 		return ret;
 	}
 
+	printf("%s: done\n", __func__);
 	return 0;
 }
 
@@ -225,25 +243,36 @@ static int sii902x_ddc_bus_request(struct udevice *dev)
 	u8 timeout_count = 0;
 	int ret, status;
 
+	printf("%s: entry\n", __func__);
+
 	ret = sii902x_update_bits(dev, SII902X_SYS_CTRL_DATA,
 				  SII902X_SYS_CTRL_DDC_BUS_REQ,
 				  SII902X_SYS_CTRL_DDC_BUS_REQ);
-	if (ret)
+	if (ret) {
+		printf("%s: failed to request DDC bus: %d\n", __func__, ret);
 		return ret;
+	}
 
 	timeout_count = 0;
 	while (timeout_count < 5) {
 		status = sii902x_reg_read(dev, SII902X_SYS_CTRL_DATA);
-		if (status < 0)
+		if (status < 0) {
+			printf("%s: status read failed: %d\n", __func__, status);
 			return status;
+		}
 
-		if (status & SII902X_SYS_CTRL_DDC_BUS_GRTD)
+		if (status & SII902X_SYS_CTRL_DDC_BUS_GRTD) {
+			printf("%s: DDC bus granted after %u ms\n", __func__,
+			       timeout_count);
 			return 0;
+		}
 
 		udelay(1000); /* Wait 1ms between attempts */
 		timeout_count++;
 	}
 
+	printf("%s: timed out waiting for DDC bus grant, status=0x%02x\n",
+	       __func__, status);
 	return -EBUSY;
 }
 
@@ -252,26 +281,38 @@ static int sii902x_ddc_bus_release(struct udevice *dev)
 	unsigned long start;
 	int ret, status;
 
+	printf("%s: entry\n", __func__);
+
 	ret = sii902x_update_bits(dev, SII902X_SYS_CTRL_DATA,
 				  SII902X_SYS_CTRL_DDC_BUS_REQ |
 				  SII902X_SYS_CTRL_DDC_BUS_GRTD, 0);
-	if (ret)
+	if (ret) {
+		printf("%s: failed to clear DDC bus req/grant bits: %d\n",
+		       __func__, ret);
 		return ret;
+	}
 
 	start = get_timer(0);
 	do {
 		status = sii902x_reg_read(dev, SII902X_SYS_CTRL_DATA);
-		if (status < 0)
+		if (status < 0) {
+			printf("%s: status read failed: %d\n", __func__, status);
 			return status;
+		}
 
 		if (!(status & (SII902X_SYS_CTRL_DDC_BUS_REQ |
-				SII902X_SYS_CTRL_DDC_BUS_GRTD)))
+				SII902X_SYS_CTRL_DDC_BUS_GRTD))) {
+			printf("%s: DDC bus released after %lu ms\n", __func__,
+			       get_timer(start));
 			return 0;
+		}
 
 		udelay(1000);
 	} while (get_timer(start) < SII902X_I2C_BUS_ACQUISITION_TIMEOUT_MS);
 
 	dev_err(dev, "failed to release DDC bus\n");
+	printf("%s: timed out releasing DDC bus, status=0x%02x\n", __func__,
+	       status);
 	return -ETIMEDOUT;
 }
 
@@ -288,10 +329,17 @@ static int sii902x_ddc_read_edid(struct udevice *dev, u8 *buf, int size)
 	struct udevice *ddc_dev;
 	int ret;
 
-	if (!buf || size < 128)
+	printf("%s: entry, size=%d\n", __func__, size);
+
+	if (!buf || size < 128) {
+		printf("%s: invalid buf/size (buf=%p, size=%d)\n", __func__,
+		       buf, size);
 		return -EINVAL;
+	}
 
 	ret = i2c_get_chip(i2c_bus, SII902X_DDC_ADDR, 1, &ddc_dev);
+	printf("%s: i2c_get_chip(addr=0x%02x) ret=%d\n", __func__,
+	       SII902X_DDC_ADDR, ret);
 	if (ret) {
 		dev_err(dev, "cannot get DDC chip device: %d\n", ret);
 		return ret;
@@ -299,6 +347,8 @@ static int sii902x_ddc_read_edid(struct udevice *dev, u8 *buf, int size)
 
 	/* Read the base EDID block (128 bytes) */
 	ret = dm_i2c_read(ddc_dev, 0, buf, EDID_SIZE);
+	printf("%s: dm_i2c_read(EDID_SIZE=%d) ret=%d\n", __func__, EDID_SIZE,
+	       ret);
 	if (ret) {
 		dev_err(dev, "failed to read base EDID block: %d\n", ret);
 		return ret;
@@ -313,19 +363,28 @@ static int sii902x_check_chipid(struct udevice *dev)
 	u8 chipid[4];
 	int i;
 
+	printf("%s: entry\n", __func__);
+
 	for (i = 0; i < 4; i++) {
 		ret = sii902x_reg_read(dev, SII902X_REG_CHIPID(i));
 		if (ret < 0) {
 			dev_err(dev, "failed to read chip ID[%d]: %d\n",
 				i, ret);
+			printf("%s: failed to read chip ID[%d]: %d\n",
+			       __func__, i, ret);
 			return ret;
 		}
 		chipid[i] = ret;
 	}
 
+	printf("%s: chipid=%02x %02x %02x %02x\n", __func__,
+	       chipid[0], chipid[1], chipid[2], chipid[3]);
+
 	if (chipid[0] != 0xb0) {
 		dev_err(dev, "invalid chip ID: %02x (expected 0xb0)\n",
 			chipid[0]);
+		printf("%s: invalid chip ID: 0x%02x (expected 0xb0)\n",
+		       __func__, chipid[0]);
 		return -ENODEV;
 	}
 
@@ -337,29 +396,40 @@ static int sii902x_read_edid(struct udevice *dev, u8 *buf, int buf_size)
 	struct sii902x_priv *priv = dev_get_priv(dev);
 	int ret, size;
 
+	printf("%s: entry, buf_size=%d\n", __func__, buf_size);
+
 	ret = sii902x_ddc_bus_request(dev);
+	printf("%s: ddc_bus_request ret=%d\n", __func__, ret);
 	if (ret)
 		return ret;
 
 	/* Write 0x06 to SII902X_SYS_CTRL_DATA to enable EDID access */
 	ret = sii902x_reg_write(dev, SII902X_SYS_CTRL_DATA, 0x06);
-	if (ret)
+	if (ret) {
+		printf("%s: failed to enable EDID access: %d\n", __func__, ret);
 		return ret;
+	}
 
 	size = sii902x_ddc_read_edid(dev, priv->edid,
 				     min(buf_size, (int)sizeof(priv->edid)));
+	printf("%s: ddc_read_edid size=%d\n", __func__, size);
 
 	/* Always release the DDC bus, even on read failure */
 	ret = sii902x_ddc_bus_release(dev);
+	printf("%s: ddc_bus_release ret=%d\n", __func__, ret);
 	if (ret)
 		return ret;
 
-	if (size <= 0)
+	if (size <= 0) {
+		printf("%s: EDID read failed, size=%d\n", __func__, size);
 		return size ? size : -EIO;
+	}
 
 	size = min(size, buf_size);
 	memcpy(buf, priv->edid, size);
 
+	printf("%s: returning %s (size=%d)\n", __func__,
+	       size >= 128 ? "0" : "-EIO", size);
 	return size >= 128 ? 0 : -EIO;
 }
 
@@ -379,14 +449,20 @@ static int sii902x_get_display_timings(struct udevice *dev, struct display_timin
 	u8 edid[128];
 	int bpc, ret;
 
+	printf("%s: entry\n", __func__);
+
 	ret = sii902x_read_edid(dev, edid, sizeof(edid));
+	printf("%s: sii902x_read_edid ret=%d\n", __func__, ret);
 	if (ret) {
+		printf("%s: falling back to default_timing\n", __func__);
 		memcpy(timing, &default_timing, sizeof(*timing));
 		return 0;
 	}
 
 	ret = edid_get_timing(edid, sizeof(edid), timing, &bpc);
+	printf("%s: edid_get_timing ret=%d\n", __func__, ret);
 	if (ret) {
+		printf("%s: falling back to default_timing\n", __func__);
 		memcpy(timing, &default_timing, sizeof(*timing));
 		return 0;
 	}
@@ -399,6 +475,9 @@ static int sii902x_get_display_timings(struct udevice *dev, struct display_timin
 	timing->pixelclock.min /= 1000;
 	timing->pixelclock.max /= 1000;
 
+	printf("%s: EDID timing: %ux%u @ %u kHz\n", __func__,
+	       timing->hactive.typ, timing->vactive.typ, timing->pixelclock.typ);
+
 	priv->timing = *timing;
 	return 0;
 }
@@ -408,18 +487,23 @@ static int sii902x_enable(struct udevice *dev)
 	struct display_timing timing;
 	int ret;
 
+	printf("%s: entry\n", __func__);
+
 	ret = sii902x_get_display_timings(dev, &timing);
-	if (ret) {
+	printf("%s: get_display_timings ret=%d\n", __func__, ret);
+	if (ret = 0) {
 		dev_err(dev, "Failed to get display timings: %d\n", ret);
 		return ret;
 	}
 
 	/* Configure the bridge with the retrieved timings */
 	ret = sii902x_bridge_mode_set(dev, &timing);
-	if (ret) {
+	printf("%s: bridge_mode_set ret=%d\n", __func__, ret);
+	if (ret = 0) {
 		dev_err(dev, "Failed to set bridge mode: %d\n", ret);
 		return ret;
 	}
+	printf("%s: done\n", __func__);
 	return 0;
 }
 
@@ -427,21 +511,29 @@ static int sii902x_probe(struct udevice *dev)
 {
 	int ret;
 
-	if (device_get_uclass_id(dev->parent) != UCLASS_I2C)
+	printf("%s: entry for '%s'\n", __func__, dev->name);
+
+	if (device_get_uclass_id(dev->parent) != UCLASS_I2C) {
+		printf("%s: parent is not UCLASS_I2C\n", __func__);
 		return -EPROTONOSUPPORT;
+	}
 
 	/* Enable TPI mode */
 	ret = sii902x_reg_write(dev, SII902X_REG_TPI_RQB, 0x00);
+	printf("%s: enable TPI mode ret=%d\n", __func__, ret);
 	if (ret) {
 		dev_err(dev, "failed to enable TPI mode: %d\n", ret);
 		return ret;
 	}
 
 	ret = sii902x_check_chipid(dev);
+	printf("%s: check_chipid ret=%d\n", __func__, ret);
 	if (ret)
 		return ret;
 
-	return sii902x_bridge_init(dev);
+	ret = sii902x_bridge_init(dev);
+	printf("%s: bridge_init ret=%d, probe complete\n", __func__, ret);
+	return ret;
 }
 
 static struct video_bridge_ops sii902x_ops = {

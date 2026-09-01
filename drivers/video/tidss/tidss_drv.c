@@ -758,28 +758,46 @@ static int tidss_find_dsi_bridge(ofnode bridge_node, struct udevice **bridge_dev
 	ofnode child, out_ep, ext;
 	int ret;
 
+	printf("%s: bridge_node='%s'\n", __func__,
+	       ofnode_valid(bridge_node) ? ofnode_get_name(bridge_node) : "<invalid>");
+
 	ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE,
 					  bridge_node, bridge_devp);
-	if (!ret)
+	if (!ret) {
+		printf("%s: found bridge directly at '%s': %s\n", __func__,
+		       ofnode_get_name(bridge_node), (*bridge_devp)->name);
 		return 0;
+	}
 
 	ofnode_for_each_subnode(child, bridge_node) {
+		printf("%s: checking child '%s'\n", __func__, ofnode_get_name(child));
 		ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE,
 						  child, bridge_devp);
-		if (!ret)
+		if (!ret) {
+			printf("%s: found bridge at child '%s': %s\n", __func__,
+			       ofnode_get_name(child), (*bridge_devp)->name);
 			return 0;
+		}
 	}
 
 	out_ep = ofnode_graph_get_endpoint_by_regs(bridge_node, 0, -1);
-	if (!ofnode_valid(out_ep))
+	if (!ofnode_valid(out_ep)) {
+		printf("%s: no output endpoint found on '%s'\n", __func__,
+		       ofnode_get_name(bridge_node));
 		return -ENODEV;
+	}
 
 	ext = ofnode_graph_get_remote_port_parent(out_ep);
-	if (!ofnode_valid(ext))
+	if (!ofnode_valid(ext)) {
+		printf("%s: no remote port parent for output endpoint\n", __func__);
 		return -ENODEV;
+	}
 
-	return uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE,
-					   ext, bridge_devp);
+	printf("%s: trying remote port parent '%s'\n", __func__, ofnode_get_name(ext));
+	ret = uclass_get_device_by_ofnode(UCLASS_VIDEO_BRIDGE, ext, bridge_devp);
+	printf("%s: uclass_get_device_by_ofnode('%s') ret=%d\n", __func__,
+	       ofnode_get_name(ext), ret);
+	return ret;
 }
 
 static void dss_vp_init(struct tidss_drv_priv *priv)
@@ -808,8 +826,14 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
 
 	ports_parent = ofnode_graph_get_port_parent(endpoint);
 
-	if (!ofnode_valid(ports_parent))
+	if (!ofnode_valid(ports_parent)) {
+		printf("%s: invalid ports_parent for endpoint '%s'\n", __func__,
+		       ofnode_get_name(endpoint));
 		return false;
+	}
+
+	printf("%s: endpoint='%s' ports_parent='%s'\n", __func__,
+	       ofnode_get_name(endpoint), ofnode_get_name(ports_parent));
 
 	ports = ofnode_find_subnode(ports_parent, "ports");
 
@@ -818,8 +842,11 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
 		parent_name = ofnode_get_name(ports_parent);
 
 		/* Skip DSS nodes */
-		if (parent_name && strstr(parent_name, "dss"))
+		if (parent_name && strstr(parent_name, "dss")) {
+			printf("%s: '%s' has no ports subnode but is a dss node, skip\n",
+			       __func__, parent_name);
 			return false;
+		}
 
 		/*
 		 * Check if device has a single port that doesn't connect to
@@ -845,9 +872,14 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
 			 * If device has single port with no outgoing connections,
 			 * it's a sink
 			 */
-			if (!has_outgoing_connection)
+			if (!has_outgoing_connection) {
+				printf("%s: '%s' is a sink (single port, no outgoing), enabled=true\n",
+				       __func__, parent_name);
 				return true;
+			}
 		}
+		printf("%s: '%s' has no ports subnode and is not a sink, enabled=false\n",
+		       __func__, parent_name);
 		return false;
 	}
 
@@ -861,6 +893,8 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
 		 * element in the pipeline is enabled already, and hence if
 		 * dss is reached, return true.
 		 */
+		printf("%s: reached dss node '%s' again, enabled=true\n",
+		       __func__, parent_name);
 		return true;
 	}
 
@@ -882,13 +916,20 @@ bool is_pipeline_components_enabled(ofnode endpoint, ofnode prev)
 			    ofnode_equal(remote_endpoint, prev))
 				continue;
 
+			printf("%s: '%s' -> remote endpoint '%s', checking enabled state\n",
+			       __func__, parent_name, ofnode_get_name(remote_endpoint));
+
 			if (ofnode_is_enabled(remote_endpoint))
 				return is_pipeline_components_enabled(remote_endpoint,
 								      local_endpoint);
 
+			printf("%s: remote endpoint '%s' is disabled, enabled=false\n",
+			       __func__, ofnode_get_name(remote_endpoint));
 			return false;
 		}
 	}
+	printf("%s: '%s' has no further endpoints to check, enabled=true\n",
+	       __func__, parent_name);
 	return true;
 }
 
@@ -919,8 +960,11 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
 	int active_pipelines = 0;
 	int ret;
 
+	printf("%s: entry\n", __func__);
+
 	if (!ofnode_valid(dss_ports)) {
 		dev_warn(priv->dev, "%s: dss_ports not found\n", __func__);
+		printf("%s: dss_ports subnode not found under dss node\n", __func__);
 		return -1;
 	}
 
@@ -928,12 +972,20 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
 		if (strncmp(ofnode_get_name(port), "port", 4))
 			continue;
 
+		printf("%s: checking port '%s'\n", __func__, ofnode_get_name(port));
+
 		ofnode_for_each_subnode(local_endpoint, port) {
 			if (strncmp(ofnode_get_name(local_endpoint), "endpoint", 8))
 				continue;
 
-			if (!is_bridge_and_panel_enabled(local_endpoint))
+			printf("%s: checking endpoint '%s'\n", __func__,
+			       ofnode_get_name(local_endpoint));
+
+			if (!is_bridge_and_panel_enabled(local_endpoint)) {
+				printf("%s: pipeline not fully enabled for endpoint '%s'\n",
+				       __func__, ofnode_get_name(local_endpoint));
 				continue;
+			}
 
 			/* Get videoport id*/
 			ret = ofnode_read_u32(port, "reg", &hw_videoport);
@@ -941,21 +993,32 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
 				dev_warn(priv->dev,
 					 "Failed to read videoport id, reg property not found for node: %s\n",
 					 ofnode_get_name(local_endpoint));
+				printf("%s: reg property missing for port '%s'\n",
+				       __func__, ofnode_get_name(port));
 				/* Check for other video ports */
 				continue;
 			}
 
+			printf("%s: hw_videoport=%d\n", __func__, hw_videoport);
+
 			remote_port = ofnode_graph_get_remote_port_parent(local_endpoint);
+			printf("%s: remote_port='%s'\n", __func__,
+			       ofnode_valid(remote_port) ? ofnode_get_name(remote_port) : "<invalid>");
 			if (strstr(ofnode_get_name(remote_port), "oldi")) {
 				/* Initialize oldi */
+				printf("%s: OLDI pipeline detected, calling tidss_oldi_init\n",
+				       __func__);
 				ret = tidss_oldi_init(priv->dev);
 				if (ret) {
 					if (ret != -ENODEV)
 						dev_warn(priv->dev, "oldi panel error %d\n", ret);
+					printf("%s: tidss_oldi_init failed: %d\n", __func__, ret);
 					break;
 				}
 
 				priv->active_hw_vps[active_pipelines++] = hw_videoport;
+				printf("%s: OLDI pipeline active, active_pipelines=%d\n",
+				       __func__, active_pipelines);
 				/*
 				 * Only one dual-link oldi panel supported at a time so
 				 * initialize it only and then check for other videoports
@@ -967,9 +1030,12 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
 				ofnode remote_endpoint, bridge_node;
 				struct udevice *bridge_dev;
 
+				printf("%s: DSI pipeline detected\n", __func__);
+
 				remote_endpoint = ofnode_graph_get_remote_endpoint(local_endpoint);
 				if (!ofnode_valid(remote_endpoint)) {
 					dev_warn(priv->dev, "DSI: no remote endpoint\n");
+					printf("%s: DSI: no remote endpoint\n", __func__);
 					break;
 				}
 
@@ -979,35 +1045,53 @@ static int tidss_enable_pipeline_components(struct tidss_drv_priv *priv)
 				 * child of dsi0 (UCLASS_VIDEO_BRIDGE under UCLASS_DSI_HOST).
 				 */
 				bridge_node = ofnode_graph_get_port_parent(remote_endpoint);
+				printf("%s: DSI bridge_node='%s'\n", __func__,
+				       ofnode_valid(bridge_node) ? ofnode_get_name(bridge_node) : "<invalid>");
 				ret = tidss_find_dsi_bridge(bridge_node, &bridge_dev);
 				if (ret) {
 					dev_warn(priv->dev, "DSI: bridge not found: %d\n", ret);
+					printf("%s: DSI: bridge not found: %d\n", __func__, ret);
 					break;
 				}
 
+				printf("%s: DSI bridge found: %s, attaching\n", __func__,
+				       bridge_dev->name);
 				ret = video_bridge_attach(bridge_dev);
-				if (ret)
+				if (ret) {
+					printf("%s: video_bridge_attach failed: %d\n",
+					       __func__, ret);
 					break;
+				}
 
 				priv->bridge_dev = bridge_dev;
 				priv->active_hw_vps[active_pipelines++] = hw_videoport;
+				printf("%s: DSI pipeline active, active_pipelines=%d\n",
+				       __func__, active_pipelines);
 				break;
 			} else if (strstr(ofnode_get_name(remote_port), "hdmi")) {
 				struct udevice *bridge_dev = NULL;
 				int ret;
 
+				printf("%s: HDMI pipeline detected\n", __func__);
+
 				ret = uclass_first_device_err(UCLASS_VIDEO_BRIDGE, &bridge_dev);
 				if (ret && !bridge_dev) {
 					dev_warn(priv->dev, "HDMI: bridge not found: %d\n", ret);
+					printf("%s: HDMI: bridge not found: %d\n", __func__, ret);
 					break;
 				}
+				printf("%s: HDMI bridge found: %s\n", __func__,
+				       bridge_dev ? bridge_dev->name : "<none>");
 				priv->bridge_dev = bridge_dev;
 				priv->active_hw_vps[active_pipelines++] = hw_videoport;
+				printf("%s: HDMI pipeline active, active_pipelines=%d\n",
+				       __func__, active_pipelines);
 				break;
 			}
 		}
 	}
 	priv->active_pipelines = active_pipelines;
+	printf("%s: exit, active_pipelines=%d\n", __func__, active_pipelines);
 	if (active_pipelines == 0)
 		return -1;
 
@@ -1028,6 +1112,8 @@ static int tidss_drv_probe(struct udevice *dev)
 
 	priv->dev = dev;
 
+	printf("%s: probe start for '%s'\n", __func__, dev->name);
+
 	priv->feat = (const struct dss_features *)dev_get_driver_data(dev);
 
 	priv->pixel_format = DSS_FORMAT_XRGB8888;
@@ -1040,6 +1126,8 @@ static int tidss_drv_probe(struct udevice *dev)
 	 * components in the pipeline.
 	 */
 	ret = tidss_enable_pipeline_components(priv);
+	printf("%s: tidss_enable_pipeline_components returned %d, active_pipelines=%d\n",
+	       __func__, ret, priv->active_pipelines);
 	if (ret) {
 		if (ret == -1)
 			dev_warn(priv->dev, "NO active panels detected, check status of panel nodes\n");
@@ -1053,12 +1141,17 @@ static int tidss_drv_probe(struct udevice *dev)
 		panel = NULL;
 	}
 
+	printf("%s: panel=%s, bridge_dev=%s\n", __func__,
+	       panel ? panel->name : "<none>",
+	       priv->bridge_dev ? priv->bridge_dev->name : "<none>");
+
 	if (panel) {
 		ret = panel_get_display_timing(panel, &timings);
 		if (ret) {
 			ret = ofnode_decode_panel_timing(dev_ofnode(panel), &timings);
 			if (ret) {
 				dev_err(dev, "decode display timing error %d\n", ret);
+				printf("%s: decode display timing error %d\n", __func__, ret);
 				return ret;
 			}
 		}
@@ -1066,12 +1159,17 @@ static int tidss_drv_probe(struct udevice *dev)
 		ret = video_bridge_get_display_timing(priv->bridge_dev, &timings);
 		if (ret) {
 			dev_err(dev, "bridge get_display_timing failed: %d\n", ret);
+			printf("%s: bridge get_display_timing failed: %d\n", __func__, ret);
 			return ret;
 		}
 	} else {
 		dev_err(dev, "no panel and no bridge: cannot get display timing\n");
+		printf("%s: no panel and no bridge: cannot get display timing\n", __func__);
 		return -ENODEV;
 	}
+
+	printf("%s: timings: %ux%u @ %u kHz\n", __func__,
+	       timings.hactive.typ, timings.vactive.typ, timings.pixelclock.typ);
 
 	mode = panel ? ofnode_read_string(dev_ofnode(panel), "data-mapping") : NULL;
 
@@ -1096,6 +1194,7 @@ static int tidss_drv_probe(struct udevice *dev)
 	priv->base_common = dev_remap_addr_name(dev, priv->feat->common);
 	if (!priv->base_common) {
 		dev_err(dev, "remap '%s' failed\n", priv->feat->common);
+		printf("%s: remap '%s' failed\n", __func__, priv->feat->common);
 		return -EINVAL;
 	}
 	/* plane address setup and enable */
@@ -1103,6 +1202,7 @@ static int tidss_drv_probe(struct udevice *dev)
 		priv->base_vid[i] = dev_remap_addr_name(dev, priv->feat->vid_name[i]);
 		if (!priv->base_vid[i]) {
 			dev_err(dev, "remap '%s' failed\n", priv->feat->vid_name[i]);
+			printf("%s: remap '%s' failed\n", __func__, priv->feat->vid_name[i]);
 			return -EINVAL;
 		}
 	}
@@ -1113,10 +1213,14 @@ static int tidss_drv_probe(struct udevice *dev)
 	 * - DPI/DSI (VP1/vp2) uses vidl1 (plane 0)
 	 * Linux reference: OVR2 CHANNELIN=1 (vidl1) for DSI on am62p/j722s
 	 */
-	if (priv->feat->vp_bus_type[priv->active_hw_vps[0]] == DSS_VP_OLDI)
-		hw_plane = 1;
-	else
-		hw_plane = 0;
+	// if (priv->feat->vp_bus_type[priv->active_hw_vps[0]] == DSS_VP_OLDI)
+	// 	hw_plane = 1;
+	// else
+	// 	hw_plane = 1;
+	printf("%s: hw_plane=%u, active_hw_vps[0]=%u\n", __func__,
+	       hw_plane, priv->active_hw_vps[0]);
+	printf("%s: uc_plat->base=0x%lx, uc_plat->size=0x%x\n", __func__,
+	       uc_plat->base, uc_plat->size);
 	memset((void *)(uintptr_t)uc_plat->base, 0xff, uc_plat->size);
 	flush_dcache_range((ulong)uc_plat->base,
 			   ALIGN((ulong)uc_plat->base + uc_plat->size,
@@ -1130,6 +1234,8 @@ static int tidss_drv_probe(struct udevice *dev)
 		ret = dss_plane_setup(priv, hw_plane, priv->active_hw_vps[i],
 				      timings.hactive.typ, timings.vactive.typ);
 		if (ret) {
+			printf("%s: dss_plane_setup failed for vp %u: %d\n",
+			       __func__, priv->active_hw_vps[i], ret);
 			dss_plane_enable(priv, hw_plane, false);
 			return ret;
 		}
@@ -1168,18 +1274,23 @@ static int tidss_drv_probe(struct udevice *dev)
 	ret = clk_get_by_name(dev, "fck", &priv->fclk);
 	if (ret) {
 		dev_err(dev, "peripheral clock get error %d\n", ret);
+		printf("%s: peripheral clock get error %d\n", __func__, ret);
 		return ret;
 	}
 
 	ret = clk_enable(&priv->fclk);
 	if (ret) {
 		dev_err(dev, "peripheral clock enable error %d\n", ret);
+		printf("%s: peripheral clock enable error %d\n", __func__, ret);
 		return ret;
 	}
 
 	dev_dbg(dev, "DSS fclk %lu Hz\n", clk_get_rate(&priv->fclk));
+	printf("%s: DSS fclk %lu Hz\n", __func__, clk_get_rate(&priv->fclk));
 
 	for (i = 0; i < priv->active_pipelines; i++) {
+		printf("%s: configuring vp%u (loop %u/%u)\n", __func__,
+		       priv->active_hw_vps[i], i, priv->active_pipelines);
 
 		ret = clk_get_by_name(dev,
 				      priv->feat->vpclk_name[priv->active_hw_vps[i]],
@@ -1188,6 +1299,9 @@ static int tidss_drv_probe(struct udevice *dev)
 			dev_err(dev, "video port %d clock get error %d (clk_name=%s)\n",
 				i, ret,
 				priv->feat->vpclk_name[priv->active_hw_vps[i]]);
+			printf("%s: video port %d clock get error %d (clk_name=%s)\n",
+			       __func__, i, ret,
+			       priv->feat->vpclk_name[priv->active_hw_vps[i]]);
 			return ret;
 		}
 		dss_ovr_set_plane(priv, hw_plane, priv->active_hw_vps[i], 0, 0, 0);
@@ -1202,11 +1316,13 @@ static int tidss_drv_probe(struct udevice *dev)
 		 * causing the video stream to never lock.
 		 */
 		udelay(1000);
-		if (priv->bridge_dev) {
+		if (0 && priv->bridge_dev) {
 			ret = video_bridge_pre_enable(priv->bridge_dev);
 			if (ret)
 				dev_warn(dev, "vp%u: bridge pre_enable failed: %d\n",
 					 priv->active_hw_vps[i], ret);
+			printf("%s: vp%u: bridge_pre_enable ret=%d\n", __func__,
+			       priv->active_hw_vps[i], ret);
 
 			/*
 			 * Re-fetch timings from bridge after pre_enable: the
@@ -1219,11 +1335,17 @@ static int tidss_drv_probe(struct udevice *dev)
 							    &timings))
 				dev_warn(dev, "vp%u: failed to re-read bridge timings\n",
 					 priv->active_hw_vps[i]);
+			printf("%s: vp%u: re-read timings: %ux%u @ %u kHz\n", __func__,
+			       priv->active_hw_vps[i], timings.hactive.typ,
+			       timings.vactive.typ, timings.pixelclock.typ);
 		}
 
 		/* Video Port clocks - set rate before enabling */
 		dss_vp_enable_clk(priv, priv->active_hw_vps[i]);
 		dss_vp_set_clk_rate(priv, priv->active_hw_vps[i], timings.pixelclock.typ * 1000);
+		printf("%s: vp%u: clk enabled, requested rate=%u kHz, actual=%lu Hz\n",
+		       __func__, priv->active_hw_vps[i], timings.pixelclock.typ,
+		       clk_get_rate(&priv->vp_clk[priv->active_hw_vps[i]]));
 		dss_vp_init(priv);
 		dss_vp_prepare(priv, priv->active_hw_vps[i]);
 
@@ -1232,12 +1354,16 @@ static int tidss_drv_probe(struct udevice *dev)
 			if (ret)
 				dev_warn(dev, "vp%u: bridge enable failed: %d\n",
 					 priv->active_hw_vps[i], ret);
+			printf("%s: vp%u: video_bridge_enable ret=%d\n", __func__,
+			       priv->active_hw_vps[i], ret);
 
 			if (panel) {
 				ret = panel_enable_backlight(panel);
 				if (ret && ret != -ENOSYS)
 					dev_warn(dev, "vp%u: panel_enable_backlight: %d\n",
 						 priv->active_hw_vps[i], ret);
+				printf("%s: vp%u: panel_enable_backlight ret=%d\n", __func__,
+				       priv->active_hw_vps[i], ret);
 			}
 		}
 		dss_vp_enable(priv, priv->active_hw_vps[i], &timings);
@@ -1247,8 +1373,11 @@ static int tidss_drv_probe(struct udevice *dev)
 
 		dss_vp_go(priv, priv->active_hw_vps[i]);
 
+		printf("%s: vp%u: dss_vp_enable/go done\n", __func__,
+		       priv->active_hw_vps[i]);
 	}
 
+	printf("%s: probe complete, returning 0\n", __func__);
 	video_set_flush_dcache(dev, true);
 	return 0;
 }

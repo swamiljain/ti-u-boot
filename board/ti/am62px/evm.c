@@ -81,6 +81,7 @@ void spl_board_init(void)
 	enable_caches();
 	if (IS_ENABLED(CONFIG_SPL_SPLASH_SCREEN) && IS_ENABLED(CONFIG_SPL_BMP))
 		splash_display();
+	printf("AM62Px SPL board init complete\n");
 }
 #endif
 

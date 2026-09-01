@@ -171,4 +171,5 @@ CONFIG_SPL_GPIO_HOG=y
 #include <configs/k3_efi_capsule.config>
 #include <configs/am62x_a53_usbdfu.config>
 #include <configs/am62x_a53_splashscreen.config>
-#include <configs/am62p5_j722s_evm_oldi-microtips-mf101hie-panel.config>
+//#include <configs/am62p5_j722s_evm_oldi-microtips-mf101hie-panel.config>
+#include <configs/am62px_evm_hdmi_splashscreen.config>
