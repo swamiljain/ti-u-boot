@@ -181,10 +181,21 @@ static int dm_test_i2c_ignore_nak(struct unit_test_state *uts)
 
 	/* Force every transaction on this emulator to NACK */
 	sandbox_i2c_eeprom_set_test_mode(eeprom, SIE_TEST_MODE_NAK);
+
+	/* Without the flag, the NACK still propagates as an error */
 	ut_asserteq(-EREMOTEIO, dm_i2c_read(dev, 0, buf, 5));
 	ut_asserteq(-EREMOTEIO, dm_i2c_write(dev, 0, (uint8_t *)"A", 1));
+	ut_asserteq(-EREMOTEIO, dm_i2c_probe(bus, chip, 0, &dev));
+
+	/* With the flag set, the same NACK is suppressed and treated as success */
+	ut_assertok(i2c_get_chip(bus, chip, 1, &dev));
+	ut_assertok(i2c_set_chip_flags(dev, DM_I2C_CHIP_IGNORE_NAK));
+	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
+	ut_assertok(dm_i2c_write(dev, 0, (uint8_t *)"A", 1));
+	ut_assertok(dm_i2c_probe(bus, chip, DM_I2C_CHIP_IGNORE_NAK, &dev));
 
 	/* Restore defaults */
+	ut_assertok(i2c_set_chip_flags(dev, 0));
 	sandbox_i2c_eeprom_set_test_mode(eeprom, SIE_TEST_MODE_NONE);
 	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
 

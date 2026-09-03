@@ -30,6 +30,7 @@ enum dm_i2c_chip_flags {
 	DM_I2C_CHIP_10BIT	= 1 << 0, /* Use 10-bit addressing */
 	DM_I2C_CHIP_RD_ADDRESS	= 1 << 1, /* Send address for each read byte */
 	DM_I2C_CHIP_WR_ADDRESS	= 1 << 2, /* Send address for each write byte */
+	DM_I2C_CHIP_IGNORE_NAK	= 1 << 3, /* Treat a NAK from this chip as success */
 };
 
 /** enum i2c_speed_mode - standard I2C speed modes */
@@ -127,7 +128,9 @@ struct dm_i2c_bus {
 };
 
 /*
- * Not all of these flags are implemented in the U-Boot API
+ * Not all of these flags are implemented in the U-Boot API. I2C_M_IGNORE_NAK
+ * is implemented generically by the uclass (see dm_i2c_xfer()); the rest are
+ * only honoured by drivers that explicitly check for them.
  */
 enum dm_i2c_msg_flags {
 	I2C_M_TEN		= 0x0010, /* ten-bit chip address */
