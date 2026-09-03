@@ -86,6 +86,8 @@ enum sandbox_i2c_eeprom_test_mode {
 	SIE_TEST_MODE_NONE,
 	/* Permits read/write of only one byte per I2C transaction */
 	SIE_TEST_MODE_SINGLE_BYTE,
+	/* Makes every transaction fail as if the slave did not ACK */
+	SIE_TEST_MODE_NAK,
 };
 
 void sandbox_i2c_eeprom_set_test_mode(struct udevice *dev,

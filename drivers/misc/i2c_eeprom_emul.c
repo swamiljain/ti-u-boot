@@ -82,6 +82,9 @@ static int sandbox_i2c_eeprom_xfer(struct udevice *emul, struct i2c_msg *msg,
 	/* store addr for testing visibity */
 	priv->prev_addr = msg->addr;
 
+	if (plat->test_mode == SIE_TEST_MODE_NAK)
+		return -EREMOTEIO;
+
 	for (; nmsgs > 0; nmsgs--, msg++) {
 		int len;
 		u8 *ptr;

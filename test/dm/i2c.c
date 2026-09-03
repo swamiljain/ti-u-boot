@@ -166,6 +166,32 @@ static int dm_test_i2c_bytewise(struct unit_test_state *uts)
 }
 DM_TEST(dm_test_i2c_bytewise, UTF_SCAN_PDATA | UTF_SCAN_FDT);
 
+static int dm_test_i2c_ignore_nak(struct unit_test_state *uts)
+{
+	struct udevice *bus, *dev, *eeprom;
+	uint8_t buf[5];
+
+	ut_assertok(uclass_get_device_by_seq(UCLASS_I2C, busnum, &bus));
+	ut_assertok(i2c_get_chip(bus, chip, 1, &dev));
+	ut_assertok(uclass_first_device_err(UCLASS_I2C_EMUL, &eeprom));
+	ut_assertnonnull(eeprom);
+
+	/* Baseline: normal read works before we force a NACK */
+	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
+
+	/* Force every transaction on this emulator to NACK */
+	sandbox_i2c_eeprom_set_test_mode(eeprom, SIE_TEST_MODE_NAK);
+	ut_asserteq(-EREMOTEIO, dm_i2c_read(dev, 0, buf, 5));
+	ut_asserteq(-EREMOTEIO, dm_i2c_write(dev, 0, (uint8_t *)"A", 1));
+
+	/* Restore defaults */
+	sandbox_i2c_eeprom_set_test_mode(eeprom, SIE_TEST_MODE_NONE);
+	ut_assertok(dm_i2c_read(dev, 0, buf, 5));
+
+	return 0;
+}
+DM_TEST(dm_test_i2c_ignore_nak, UTF_SCAN_PDATA | UTF_SCAN_FDT);
+
 static int dm_test_i2c_offset(struct unit_test_state *uts)
 {
 	struct udevice *eeprom;
