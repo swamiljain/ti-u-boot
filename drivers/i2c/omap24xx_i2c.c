@@ -963,7 +963,8 @@ U_BOOT_I2C_ADAP_COMPLETE(omap24_4, omap24_i2c_init, omap24_i2c_probe,
 #else /* CONFIG_DM_I2C */
 
 static int __omap24_i2c_xfer_msg(void __iomem *i2c_base, int ip_rev, int waitdelay,
-				 uchar chip, uchar *buffer, int len, u16 i2c_con_reg)
+				 uchar chip, uchar *buffer, int len, u16 i2c_con_reg,
+				 bool ignore_nak)
 {
 	int i;
 	u16 status;
@@ -1010,8 +1011,9 @@ static int __omap24_i2c_xfer_msg(void __iomem *i2c_base, int ip_rev, int waitdel
 		}
 		if (status == 0 || (status & I2C_STAT_NACK)) {
 			i2c_error = -EREMOTEIO;
-			printf("%s: error waiting for ACK (status=0x%x)\n",
-			       __func__, status);
+			if (!(ignore_nak && (status & I2C_STAT_NACK)))
+				printf("%s: error waiting for ACK (status=0x%x)\n",
+				       __func__, status);
 			goto xfer_exit;
 		}
 		if (status & I2C_STAT_XRDY) {
@@ -1092,9 +1094,11 @@ static int omap_i2c_xfer(struct udevice *bus, struct i2c_msg *msg, int nmsgs)
 
 		ret = __omap24_i2c_xfer_msg(priv->regs, priv->ip_rev, priv->waitdelay,
 					    msg->addr, msg->buf, msg->len,
-					    i2c_con_reg);
+					    i2c_con_reg,
+					    !!(msg->flags & I2C_M_IGNORE_NAK));
 		if (ret) {
-			printf("%s: errored out at msg %d: %d\n", __func__, i, ret);
+			if (!(ret == -EREMOTEIO && (msg->flags & I2C_M_IGNORE_NAK)))
+				printf("%s: errored out at msg %d: %d\n", __func__, i, ret);
 			return ret;
 		}
 	}

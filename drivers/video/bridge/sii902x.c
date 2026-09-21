@@ -427,18 +427,25 @@ static int sii902x_read_edid(struct udevice *dev, u8 *buf, int buf_size)
 	int ret, size;
 
 	printf("%s: entry, buf_size=%d\n", __func__, buf_size);
-
+	i2c_set_chip_flags(dev, 0);
 	ret = sii902x_ddc_bus_request(dev);
 	printf("%s: ddc_bus_request ret=%d\n", __func__, ret);
 	if (ret)
 		return ret;
-
+	i2c_set_chip_flags(dev, 0);
 	size = sii902x_ddc_read_edid(dev, priv->edid,
 				     min(buf_size, (int)sizeof(priv->edid)));
 	printf("%s: ddc_read_edid size=%d\n", __func__, size);
 
-	/* Always release the DDC bus, even on read failure */
+	/*
+	 * Per datasheet, clearing the DDC bus request/grant bits is expected
+	 * to NACK. Mark the chip ignore-NAK for the release step only, so
+	 * that expected NACK is treated as success instead of propagating as
+	 * -EREMOTEIO; restore normal ACK checking immediately afterward.
+	 */
+	i2c_set_chip_flags(dev, DM_I2C_CHIP_IGNORE_NAK);
 	ret = sii902x_ddc_bus_release(dev);
+	i2c_set_chip_flags(dev, 0);
 	printf("%s: ddc_bus_release ret=%d\n", __func__, ret);
 	if (ret)
 		return ret;
